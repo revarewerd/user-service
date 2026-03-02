@@ -8,7 +8,6 @@ import com.wayrecall.tracker.users.repository.*
 import com.wayrecall.tracker.users.service.*
 import zio.*
 import zio.http.*
-import zio.logging.backend.SLF4J
 
 // ============================================================
 // Main — точка входа User Service (порт 8091)
@@ -16,9 +15,6 @@ import zio.logging.backend.SLF4J
 // ============================================================
 
 object Main extends ZIOAppDefault:
-
-  override val bootstrap: ZLayer[ZIOAppArgs, Any, Any] =
-    Runtime.removeDefaultLoggers >>> SLF4J.slf4j
 
   override def run: ZIO[Any, Any, Any] =
     val program = for {
@@ -31,20 +27,16 @@ object Main extends ZIOAppDefault:
                   ManagementRoutes.routes
 
       // Запускаем HTTP-сервер
-      _      <- Server.serve(allRoutes)
+      _      <- Server.serve(allRoutes.toHttpApp)
     } yield ()
 
     program.provide(
       // Конфигурация
       AppConfig.live,
+      ZLayer.fromFunction((cfg: AppConfig) => cfg.postgres),
 
       // БД транзактор
       TransactorLayer.live,
-
-      // Redis
-      zio.redis.Redis.local,
-      zio.redis.RedisExecutor.local,
-      zio.redis.CodecSupplier.utf8,
 
       // Репозитории
       UserRepository.live,
@@ -53,7 +45,7 @@ object Main extends ZIOAppDefault:
       VehicleGroupRepository.live,
       AuditRepository.live,
 
-      // Кэш
+      // Кэш (in-memory)
       PermissionCache.live,
 
       // Сервисы

@@ -53,9 +53,9 @@ object UserRoutes:
     // GET /api/v1/users — список пользователей
     Method.GET / "api" / "v1" / "users" -> handler { (req: Request) =>
       val companyId = extractCompanyId(req)
-      val page      = req.url.queryParams.get("page").flatMap(_.headOption).flatMap(_.toIntOption).getOrElse(1)
-      val pageSize  = req.url.queryParams.get("pageSize").flatMap(_.headOption).flatMap(_.toIntOption).getOrElse(20)
-      val search    = req.url.queryParams.get("search").flatMap(_.headOption)
+      val page      = req.url.queryParams.get("page").flatMap(_.toIntOption).getOrElse(1)
+      val pageSize  = req.url.queryParams.get("pageSize").flatMap(_.toIntOption).getOrElse(20)
+      val search    = req.url.queryParams.get("search")
 
       ZIO.serviceWithZIO[UserService](_.listUsers(companyId, page, pageSize, search))
         .map(r => Response.json(r.toJson))

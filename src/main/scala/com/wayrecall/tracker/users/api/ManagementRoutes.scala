@@ -100,13 +100,13 @@ object ManagementRoutes:
     Method.GET / "api" / "v1" / "audit" -> handler { (req: Request) =>
       val companyId = extractCompanyId(req)
       val filters = AuditFilters(
-        userId = req.url.queryParams.get("userId").flatMap(_.headOption).flatMap(s => scala.util.Try(UUID.fromString(s)).toOption),
-        action = req.url.queryParams.get("action").flatMap(_.headOption),
-        entityType = req.url.queryParams.get("entityType").flatMap(_.headOption),
-        fromDate = req.url.queryParams.get("fromDate").flatMap(_.headOption).flatMap(s => scala.util.Try(Instant.parse(s)).toOption),
-        toDate = req.url.queryParams.get("toDate").flatMap(_.headOption).flatMap(s => scala.util.Try(Instant.parse(s)).toOption),
-        page = req.url.queryParams.get("page").flatMap(_.headOption).flatMap(_.toIntOption).getOrElse(1),
-        pageSize = req.url.queryParams.get("pageSize").flatMap(_.headOption).flatMap(_.toIntOption).getOrElse(20)
+        userId = req.url.queryParams.get("userId").flatMap(s => scala.util.Try(UUID.fromString(s)).toOption),
+        action = req.url.queryParams.get("action"),
+        entityType = req.url.queryParams.get("entityType"),
+        fromDate = req.url.queryParams.get("fromDate").flatMap(s => scala.util.Try(Instant.parse(s)).toOption),
+        toDate = req.url.queryParams.get("toDate").flatMap(s => scala.util.Try(Instant.parse(s)).toOption),
+        page = req.url.queryParams.get("page").flatMap(_.toIntOption).getOrElse(1),
+        pageSize = req.url.queryParams.get("pageSize").flatMap(_.toIntOption).getOrElse(20)
       )
       ZIO.serviceWithZIO[AuditService](_.getLog(companyId, filters))
         .map(r => Response.json(r.toJson))

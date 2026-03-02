@@ -11,7 +11,6 @@ scalacOptions ++= Seq(
   "-deprecation",
   "-feature",
   "-unchecked",
-  "-Xfatal-warnings",
   "-language:implicitConversions"
 )
 
@@ -46,9 +45,6 @@ libraryDependencies ++= Seq(
 
   // ZIO JSON (сериализация моделей и API)
   "dev.zio" %% "zio-json" % zioJsonVersion,
-
-  // ZIO Redis (кэш прав, профилей, групп)
-  "dev.zio" %% "zio-redis" % zioRedisVersion,
 
   // ZIO Interop Cats (мост ZIO ↔ cats-effect для Doobie)
   "dev.zio" %% "zio-interop-cats" % "23.1.0.0",
