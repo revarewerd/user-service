@@ -26,16 +26,24 @@ final class RoleServiceLive(
 ) extends RoleService:
 
   override def listRoles(companyId: Option[UUID]): Task[List[Role]] =
-    roleRepo.findAll(companyId)
+    for {
+      _ <- ZIO.logDebug(s"Запрос списка ролей: company=$companyId")
+      roles <- roleRepo.findAll(companyId)
+      _ <- ZIO.logDebug(s"Найдено ролей: ${roles.size}")
+    } yield roles
 
   override def createRole(actorId: UUID, companyId: UUID, request: CreateRoleRequest): Task[Role] =
     for {
+      _ <- ZIO.logInfo(s"Создание роли: actor=$actorId, company=$companyId, name=${request.name}")
+
       // Проверяем что актор имеет право создавать роли
       hasPerms <- permService.hasPermission(actorId, "settings:edit")
+      _ <- ZIO.when(!hasPerms)(ZIO.logWarning(s"Отказ в создании роли: actor=$actorId не имеет прав settings:edit"))
       _        <- ZIO.unless(hasPerms)(ZIO.fail(UserError.PermissionDenied("settings:edit", "Нет прав")))
 
       // Проверяем уникальность имени
       existing <- roleRepo.findByName(Some(companyId), request.name)
+      _ <- ZIO.when(existing.isDefined)(ZIO.logWarning(s"Дубликат роли: name=${request.name}, company=$companyId"))
       _        <- ZIO.when(existing.isDefined)(ZIO.fail(UserError.InvalidRequest(s"Роль '${request.name}' уже существует")))
 
       // Уровень кастомной роли = 25 (между manager и operator)
@@ -52,4 +60,5 @@ final class RoleServiceLive(
         createdAt = now
       )
       _ <- roleRepo.create(role)
+      _ <- ZIO.logInfo(s"Роль создана: id=${role.id}, name=${role.name}, permissions=${role.permissions.size}")
     } yield role

@@ -45,18 +45,23 @@ final class UserServiceLive(
 
   override def createUser(actorId: UUID, companyId: UUID, request: CreateUserRequest): Task[UserCreated] =
     for {
+      _ <- ZIO.logInfo(s"Создание пользователя: actor=$actorId, company=$companyId, email=${request.email}")
+
       // Проверяем права актора
       hasPerms <- permService.hasPermission(actorId, "users:create")
+      _ <- ZIO.when(!hasPerms)(ZIO.logWarning(s"Отказ в доступе: actor=$actorId не имеет прав users:create"))
       _        <- ZIO.unless(hasPerms)(ZIO.fail(UserError.PermissionDenied("users:create", "Нет прав")))
 
       // Проверяем уникальность email
       existing <- userRepo.findByEmail(request.email)
+      _ <- ZIO.when(existing.isDefined)(ZIO.logWarning(s"Дубликат email при создании пользователя: ${request.email}"))
       _        <- ZIO.when(existing.isDefined)(ZIO.fail(UserError.EmailAlreadyExists(request.email)))
 
       // Проверяем что роль существует и актор может её назначать
       role <- roleRepo.findById(request.roleId).someOrFail(UserError.RoleNotFound(request.roleId))
       canAssign <- permService.canAssignRole(actorId, role.level)
       _ <- ZIO.unless(canAssign)(
+        ZIO.logWarning(s"Попытка назначить роль выше уровня: actor=$actorId, roleLevel=${role.level}") *>
         ZIO.fail(UserError.PermissionDenied("assignRole", s"Нельзя назначить роль уровня ${role.level}"))
       )
 
@@ -76,6 +81,7 @@ final class UserServiceLive(
       // Создаём пользователя и назначаем роль
       _ <- userRepo.create(user)
       _ <- roleRepo.assignRole(userId, request.roleId, actorId)
+      _ <- ZIO.logInfo(s"Пользователь создан: id=$userId, email=${request.email}, role=${role.name}, company=$companyId")
 
       // Аудит
       _ <- auditRepo.log(AuditLogEntry(
@@ -108,6 +114,7 @@ final class UserServiceLive(
 
   override def updateProfile(userId: UUID, request: UpdateProfileRequest): Task[Unit] =
     for {
+      _ <- ZIO.logDebug(s"Обновление профиля пользователя: userId=$userId")
       user <- userRepo.findById(userId).someOrFail(UserError.UserNotFound(userId))
       updated = user.copy(
         firstName = request.firstName.getOrElse(user.firstName),
@@ -119,41 +126,52 @@ final class UserServiceLive(
       )
       _ <- userRepo.update(updated)
       _ <- cache.invalidateUser(userId)
+      _ <- ZIO.logInfo(s"Профиль обновлён: userId=$userId")
     } yield ()
 
   override def changePassword(userId: UUID, request: ChangePasswordRequest): Task[Unit] =
     for {
+      _ <- ZIO.logInfo(s"Смена пароля: userId=$userId")
       user <- userRepo.findById(userId).someOrFail(UserError.UserNotFound(userId))
       // Проверяем текущий пароль
       valid = BCrypt.checkpw(request.currentPassword, user.passwordHash)
+      _ <- ZIO.when(!valid)(ZIO.logWarning(s"Неверный текущий пароль при смене: userId=$userId"))
       _ <- ZIO.unless(valid)(ZIO.fail(UserError.InvalidPassword("Текущий пароль неверен")))
       // Хэшируем новый
       newHash = BCrypt.hashpw(request.newPassword, BCrypt.gensalt(12))
       updated = user.copy(passwordHash = newHash, updatedAt = Instant.now())
       _ <- userRepo.update(updated)
+      _ <- ZIO.logInfo(s"Пароль успешно изменён: userId=$userId")
     } yield ()
 
   override def assignRole(actorId: UUID, userId: UUID, roleId: UUID): Task[Unit] =
     for {
+      _ <- ZIO.logInfo(s"Назначение роли: actor=$actorId, target=$userId, role=$roleId")
       // Проверяем права
       hasPerms <- permService.hasPermission(actorId, "users:edit")
+      _ <- ZIO.when(!hasPerms)(ZIO.logWarning(s"Отказ в назначении роли: actor=$actorId не имеет прав users:edit"))
       _        <- ZIO.unless(hasPerms)(ZIO.fail(UserError.PermissionDenied("users:edit", "Нет прав")))
       // Проверяем что роль существует и можно назначить
       role <- roleRepo.findById(roleId).someOrFail(UserError.RoleNotFound(roleId))
       canAssign <- permService.canAssignRole(actorId, role.level)
       _ <- ZIO.unless(canAssign)(
+        ZIO.logWarning(s"Попытка назначить роль выше уровня: actor=$actorId, roleLevel=${role.level}") *>
         ZIO.fail(UserError.PermissionDenied("assignRole", s"Нельзя назначить роль уровня ${role.level}"))
       )
       _ <- roleRepo.assignRole(userId, roleId, actorId)
       _ <- cache.invalidateUser(userId)
+      _ <- ZIO.logInfo(s"Роль назначена: user=$userId, role=${role.name} (level=${role.level}), actor=$actorId")
     } yield ()
 
   override def deactivateUser(actorId: UUID, userId: UUID): Task[Unit] =
     for {
+      _ <- ZIO.logInfo(s"Деактивация пользователя: actor=$actorId, target=$userId")
       hasPerms <- permService.hasPermission(actorId, "users:delete")
+      _ <- ZIO.when(!hasPerms)(ZIO.logWarning(s"Отказ в деактивации: actor=$actorId не имеет прав users:delete"))
       _        <- ZIO.unless(hasPerms)(ZIO.fail(UserError.PermissionDenied("users:delete", "Нет прав")))
       _        <- userRepo.deactivate(userId)
       _        <- cache.invalidateUser(userId)
+      _ <- ZIO.logInfo(s"Пользователь деактивирован: userId=$userId, actor=$actorId")
       _        <- auditRepo.log(AuditLogEntry(
         id = UUID.randomUUID(), companyId = UUID.randomUUID(), userId = actorId,
         userName = "", action = "user.deactivated", entityType = "user",

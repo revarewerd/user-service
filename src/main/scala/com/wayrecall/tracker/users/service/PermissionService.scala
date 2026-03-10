@@ -33,27 +33,36 @@ final class PermissionServiceLive(
 
   override def hasPermission(userId: UUID, permission: String): Task[Boolean] =
     getUserPermissions(userId).map { perms =>
-      perms.exists(p => Permission.matchesWildcard(p, permission))
-    }
+      val result = perms.exists(p => Permission.matchesWildcard(p, permission))
+      result
+    } <* ZIO.logDebug(s"Проверка прав: user=$userId, permission=$permission")
 
   override def getUserPermissions(userId: UUID): Task[Set[String]] =
     for {
       // Пробуем из кэша
       cached <- cache.getPermissions(userId)
       perms <- cached match
-        case Some(p) => ZIO.succeed(p)
+        case Some(p) =>
+          ZIO.logDebug(s"Права из кэша: user=$userId, count=${p.size}") *>
+          ZIO.succeed(p)
         case None =>
           for {
             // Загружаем из БД
+            _ <- ZIO.logDebug(s"Кэш промах, загрузка прав из БД: user=$userId")
             roles <- roleRepo.getUserRoles(userId)
             allPerms = roles.flatMap(_.permissions).toSet
             // Записываем в кэш
             _ <- cache.setPermissions(userId, allPerms)
+            _ <- ZIO.logDebug(s"Права загружены и кэшированы: user=$userId, roles=${roles.size}, perms=${allPerms.size}")
           } yield allPerms
     } yield perms
 
   override def canAssignRole(actorId: UUID, targetRoleLevel: Int): Task[Boolean] =
-    getUserRoleLevel(actorId).map(_ <= targetRoleLevel)
+    for {
+      actorLevel <- getUserRoleLevel(actorId)
+      result = actorLevel <= targetRoleLevel
+      _ <- ZIO.logDebug(s"Проверка назначения роли: actor=$actorId, actorLevel=$actorLevel, targetLevel=$targetRoleLevel, allowed=$result")
+    } yield result
 
   override def getUserRoleLevel(userId: UUID): Task[Int] =
     roleRepo.getUserRoleLevel(userId).map(_.getOrElse(Int.MaxValue))

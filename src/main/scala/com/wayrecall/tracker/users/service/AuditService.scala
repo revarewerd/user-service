@@ -22,5 +22,7 @@ final class AuditServiceLive(auditRepo: AuditRepository) extends AuditService:
 
   override def getLog(companyId: UUID, filters: AuditFilters): Task[AuditListResponse] =
     for {
+      _ <- ZIO.logDebug(s"Запрос аудит-лога: company=$companyId, action=${filters.action}, page=${filters.page}")
       (entries, total) <- auditRepo.find(companyId, filters)
+      _ <- ZIO.logDebug(s"Аудит-лог загружен: company=$companyId, total=$total, returned=${entries.size}")
     } yield AuditListResponse(total, entries)
